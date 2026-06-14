@@ -9,8 +9,18 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Keep the newest user for each duplicated phone and clear older duplicates
-        // before creating the unique index.
+        // Drop the email unique index only if it still exists
+        // (it may have been dropped by a previous partial migration run).
+        $emailIndexExists = collect(DB::select("SHOW INDEX FROM users WHERE Key_name = 'users_email_unique'"))->isNotEmpty();
+
+        if ($emailIndexExists) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->dropUnique('users_email_unique');
+            });
+        }
+
+        // Deduplicate phone numbers before adding the unique constraint.
+        // Keep the newest user (highest id) for each phone; null out older duplicates.
         DB::statement("
             UPDATE users u
             JOIN (
@@ -23,10 +33,14 @@ return new class extends Migration
             SET u.phone = NULL
         ");
 
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropUnique('users_email_unique');
-            $table->unique('phone');
-        });
+        // Add the unique index only if it doesn't already exist.
+        $phoneIndexExists = collect(DB::select("SHOW INDEX FROM users WHERE Key_name = 'users_phone_unique'"))->isNotEmpty();
+
+        if (!$phoneIndexExists) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->unique('phone');
+            });
+        }
     }
 
     public function down(): void
